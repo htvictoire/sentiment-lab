@@ -1,0 +1,14 @@
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+__pycache__/
+*.py[cod]
+*.sqlite3
+backend/.venv/
+client/node_modules/
+client/.next/
+*.tsbuildinfo
+*.log
