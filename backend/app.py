@@ -1,4 +1,6 @@
-"""FastAPI application for the sentiment dashboard."""
+"""Application FastAPI du tableau de bord de sentiment."""
+
+from datetime import datetime, timezone
 
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -6,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import settings
 import storage
 from analytics import serialize_message, summary_payload
+from local_model import is_model_ready
 from uploads import extract_chat_text, import_records, parse_chat_export
 
 
@@ -14,7 +17,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=list(settings.CORS_ALLOWED_ORIGINS),
     allow_credentials=False,
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "DELETE"],
     allow_headers=["Content-Type"],
 )
 storage.init_db()
@@ -25,8 +28,8 @@ def health():
     return {
         "status": "ok",
         "service": "fastapi-backend",
-        "gemini_configured": bool(settings.GEMINI_API_KEY),
-        "model": settings.GEMINI_MODEL,
+        "model": settings.LOCAL_MODEL_NAME,
+        "local_model_ready": is_model_ready(),
     }
 
 
@@ -40,8 +43,25 @@ def messages(
     return {"messages": [serialize_message(row) for row in rows]}
 
 
+@app.delete("/api/messages/", status_code=200)
+def delete_all_messages():
+    storage.clear_messages()
+    return {"status": "ok"}
+
+
 @app.get("/api/dashboard/summary/")
-def summary(days: int = Query(default=7, ge=1, le=90)):
+def summary(days: int = Query(default=7, ge=1, le=90), since: str = "", until: str = ""):
+    if since and until:
+        try:
+            start = datetime.fromisoformat(since).replace(tzinfo=timezone.utc)
+            end = datetime.fromisoformat(until).replace(
+                hour=23, minute=59, second=59, microsecond=999999, tzinfo=timezone.utc
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Dates 'since'/'until' invalides (format AAAA-MM-JJ).") from exc
+        if start > end:
+            raise HTTPException(status_code=400, detail="'since' doit être antérieure à 'until'.")
+        return summary_payload(start=start, end=end)
     return summary_payload(days)
 
 

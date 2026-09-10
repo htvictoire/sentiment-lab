@@ -1,4 +1,4 @@
-"""HTTP multipart handling and WhatsApp export processing."""
+"""Gestion des envois HTTP multipart et traitement des exports WhatsApp."""
 
 import io
 import re
@@ -6,7 +6,7 @@ import zipfile
 
 import storage
 
-from gemini import classify_messages
+from local_model import classify_messages
 
 
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
@@ -29,6 +29,8 @@ def _parse_date(value):
         "%d/%m/%Y, %H:%M:%S", "%d/%m/%Y, %H:%M",
         "%d-%m-%y, %H:%M:%S", "%d-%m-%y, %H:%M",
         "%d-%m-%Y, %H:%M:%S", "%d-%m-%Y, %H:%M",
+        "%m/%d/%y, %H:%M:%S", "%m/%d/%y, %H:%M",
+        "%m/%d/%Y, %H:%M:%S", "%m/%d/%Y, %H:%M",
         "%m/%d/%y, %I:%M:%S %p", "%m/%d/%y, %I:%M %p",
         "%m/%d/%Y, %I:%M:%S %p", "%m/%d/%Y, %I:%M %p",
         "%d/%m/%y, %I:%M:%S %p", "%d/%m/%y, %I:%M %p",
@@ -42,6 +44,14 @@ def _parse_date(value):
 
 
 def parse_chat_export(content):
+    """Découpe un export WhatsApp en enregistrements ``{"timestamp", "text"}``.
+
+    Une ligne qui ressemble à un nouveau message mais porte une date que
+    WhatsApp n'a en réalité pas produite (observé sur certains exports réels,
+    par exemple un ``5/22, 10:51 AM`` tronqué) est ignorée plutôt que de faire
+    échouer tout le fichier : une seule ligne mal formée ne doit pas faire
+    perdre tous les autres messages de l'export.
+    """
     records = []
     current = None
     for raw_line in content.splitlines():
@@ -50,10 +60,17 @@ def parse_chat_export(content):
         if match:
             if current:
                 records.append(current)
-            date_value = match.group("bracket_date") or match.group("plain_date")
+                current = None
+            is_bracket_format = match.group("bracket_date") is not None
+            date_value = match.group("bracket_date") if is_bracket_format else match.group("plain_date")
+            text_value = match.group("bracket_text") if is_bracket_format else match.group("plain_text")
+            try:
+                timestamp = _parse_date(date_value)
+            except ValueError:
+                continue
             current = {
-                "timestamp": _parse_date(date_value),
-                "text": (match.group("bracket_text") or match.group("plain_text")).strip(),
+                "timestamp": timestamp,
+                "text": (text_value or "").strip(),
             }
         elif current and line:
             current["text"] += f"\n{line}"
@@ -90,30 +107,16 @@ def extract_chat_text(data, filename=""):
 
 
 def import_records(records):
-    created = 0
-    skipped = 0
-    pending = []
     with storage.connect() as connection:
-        for record in records:
-            fingerprint = f"{record['timestamp'].isoformat()}:{record['text']}"
-            exists = connection.execute(
-                "SELECT id FROM sentiment_messages WHERE fingerprint = ?", (fingerprint,)
-            )
-            if exists.fetchone():
-                skipped += 1
-                continue
-            pending.append((record, fingerprint))
-
-        predictions = classify_messages([record["text"] for record, _ in pending])
-        if len(predictions) != len(pending):
+        predictions = classify_messages([record["text"] for record in records])
+        if len(predictions) != len(records):
             raise RuntimeError("The classifier did not return one result per message")
-        for (record, fingerprint), prediction in zip(pending, predictions):
-            storage.insert_message(
-                connection,
-                record,
-                prediction,
-                fingerprint,
-            )
-            created += 1
+        for record, prediction in zip(records, predictions):
+            storage.insert_message(connection, record, prediction)
         connection.commit()
-    return {"created": created, "skipped": skipped, "total": len(records)}
+    timestamps = [record["timestamp"] for record in records]
+    return {
+        "created": len(records),
+        "total": len(records),
+        "range": {"from": min(timestamps).isoformat(), "to": max(timestamps).isoformat()},
+    }

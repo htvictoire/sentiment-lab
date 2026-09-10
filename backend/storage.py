@@ -1,4 +1,4 @@
-"""SQLite storage for imported and classified messages."""
+"""Stockage SQLite des messages importés et classés."""
 
 import sqlite3
 
@@ -18,7 +18,6 @@ def init_db():
             """
             CREATE TABLE IF NOT EXISTS sentiment_messages (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                fingerprint TEXT NOT NULL UNIQUE,
                 text TEXT NOT NULL,
                 timestamp TEXT NOT NULL,
                 sentiment TEXT NOT NULL DEFAULT 'unknown',
@@ -33,15 +32,14 @@ def init_db():
         )
 
 
-def insert_message(connection, record, prediction, fingerprint):
+def insert_message(connection, record, prediction):
     connection.execute(
         """
         INSERT INTO sentiment_messages
-            (fingerprint, text, timestamp, sentiment, confidence, language, emotion, summary)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            (text, timestamp, sentiment, confidence, language, emotion, summary)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
         (
-            fingerprint,
             record["text"],
             record["timestamp"].isoformat(),
             prediction.label,
@@ -51,6 +49,12 @@ def insert_message(connection, record, prediction, fingerprint):
             prediction.summary,
         ),
     )
+
+
+def clear_messages():
+    with connect() as connection:
+        connection.execute("DELETE FROM sentiment_messages")
+        connection.commit()
 
 
 def fetch_messages(limit=100, label="", query=""):
