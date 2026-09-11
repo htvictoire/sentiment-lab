@@ -13,6 +13,8 @@ export type Message = {
 
 export type Summary = {
   period_days: number;
+  range_start: string;
+  range_end: string;
   total_messages: number;
   counts: Record<Sentiment, number>;
   negative_last_24h: number;
@@ -21,6 +23,16 @@ export type Summary = {
   trend: Array<{ date: string; messages: number; positive: number; neutral: number; negative: number }>;
   emotions: Array<{ emotion: string; count: number }>;
 };
+
+export type ImportResult = {
+  result: {
+    created: number;
+    total: number;
+    range: { from: string; to: string };
+  };
+};
+
+export type DateRange = { from: string; to: string };
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL;
 
@@ -36,8 +48,15 @@ async function readJson(response: Response) {
   return response.json();
 }
 
-export async function getSummary(days: number): Promise<Summary> {
-  return readJson(await fetch(apiUrl(`/dashboard/summary/?days=${days}`), { cache: "no-store" }));
+export async function getSummary(period: { days: number } | { since: string; until: string }): Promise<Summary> {
+  const params = new URLSearchParams();
+  if ("since" in period) {
+    params.set("since", period.since);
+    params.set("until", period.until);
+  } else {
+    params.set("days", String(period.days));
+  }
+  return readJson(await fetch(apiUrl(`/dashboard/summary/?${params.toString()}`), { cache: "no-store" }));
 }
 
 export async function getMessages(label = "", query = ""): Promise<Message[]> {
@@ -47,14 +66,17 @@ export async function getMessages(label = "", query = ""): Promise<Message[]> {
   return (await readJson(await fetch(apiUrl(`/messages/?${params.toString()}`), { cache: "no-store" }))).messages;
 }
 
-export async function importChat(file: File) {
+export async function importChat(file: File): Promise<ImportResult> {
   const body = new FormData();
   body.append("file", file);
-  body.append("classify", "1");
   return readJson(await fetch(apiUrl("/messages/import/"), {
     method: "POST",
     body,
   }));
+}
+
+export async function deleteAllMessages(): Promise<void> {
+  await readJson(await fetch(apiUrl("/messages/"), { method: "DELETE" }));
 }
 
 export async function getBackendHealth() {
