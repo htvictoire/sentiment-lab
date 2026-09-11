@@ -372,6 +372,25 @@ Vérifiez que Git LFS est installé (`git lfs version`), puis exécutez
 540 Mo (voir étape 2). Le réentraînement n’est nécessaire que si vous voulez
 obtenir un modèle différent de celui fourni.
 
+### Erreur « DLL initialization routine failed » lors du chargement de PyTorch
+
+Si le démarrage du backend échoue avec une erreur `OSError: [WinError 1114]`
+mentionnant `c10.dll` ou une autre bibliothèque du dossier `torch\lib`, il manque
+généralement le **Microsoft Visual C++ Redistributable**, requis par PyTorch sur
+Windows :
+
+1. Téléchargez et installez
+   [vc_redist.x64.exe](https://aka.ms/vs/17/release/vc_redist.x64.exe).
+2. Redémarrez l’ordinateur, puis relancez `python backend/app.py`.
+
+Si l’erreur persiste et que le projet se trouve dans un dossier synchronisé par
+OneDrive (par exemple le Bureau), OneDrive peut ne pas avoir entièrement
+téléchargé les fichiers de l’environnement virtuel sur l’ordinateur. Dans
+l’explorateur de fichiers, faites un clic droit sur le dossier du projet et
+choisissez **Toujours conserver sur cet appareil**, attendez la fin de la
+synchronisation, puis réessayez. Il est aussi possible de déplacer le projet en
+dehors d’un dossier synchronisé par OneDrive.
+
 ### Le frontend ne trouve pas l’API
 
 Vérifiez `NEXT_PUBLIC_API_BASE_URL` dans `client/.env.local`, puis redémarrez
